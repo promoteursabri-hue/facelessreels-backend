@@ -70,19 +70,41 @@ Respond ONLY with a raw JSON object containing these keys:
   }
 });
 
-// 3. STEP 3: RENDER MP4 VIDEO VIA CREATOMATE
+// 3. STEP 3: RENDER MP4 VIDEO VIA CREATOMATE (FULL MULTI-SCENE MAPPING)
 app.post("/api/render-video", async (req, res) => {
   try {
     const { script, audioUrl } = req.body;
 
-    console.log("Starting render with Template ID:", process.env.CREATOMATE_TEMPLATE_ID);
+    console.log("Starting multi-scene render with Template ID:", process.env.CREATOMATE_TEMPLATE_ID);
 
-    // Ensure modifications match your exact template element names
+    // Fallback background image URL for template scenes
+    const bgImage = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=1080&q=80";
+
     const renders = await creatomate.render({
       templateId: process.env.CREATOMATE_TEMPLATE_ID,
       modifications: {
-        "Subtitles-1": script?.body || "FacelessReels Generated Story",
+        // Scene 1
         "Voiceover-1": audioUrl || "https://cdn.creatomate.com/demo/sample.mp3",
+        "Subtitles-1": script?.hook || "Did you know this creepy secret?",
+        "Image-1": bgImage,
+
+        // Scene 2
+        "Voiceover-2": audioUrl || "https://cdn.creatomate.com/demo/sample.mp3",
+        "Subtitles-2": script?.body || "In 1920, an abandoned lighthouse broadcast mysterious signals.",
+        "Image-2": bgImage,
+
+        // Scene 3
+        "Voiceover-3": audioUrl || "https://cdn.creatomate.com/demo/sample.mp3",
+        "Subtitles-3": script?.cta || "Follow for more unexplained mysteries!",
+        "Image-3": bgImage,
+
+        // Scene 4
+        "Voiceover-4": audioUrl || "https://cdn.creatomate.com/demo/sample.mp3",
+        "Subtitles-4": Array.isArray(script?.hashtags) ? script.hashtags.join(" ") : "#scary #mystery",
+        "Image-4": bgImage,
+
+        // Scene 5
+        "Voiceover-5": audioUrl || "https://cdn.creatomate.com/demo/sample.mp3",
       },
     });
 
