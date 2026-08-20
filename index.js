@@ -4,6 +4,7 @@ const cron = require("node-cron");
 const fs = require("fs");
 const path = require("path");
 const FormData = require("form-data");
+const { Anthropic } = require("@anthropic-ai/sdk");
 
 const app = express();
 app.use(express.json());
@@ -22,6 +23,9 @@ const YOUTUBE_CLIENT_ID = process.env.YOUTUBE_CLIENT_ID || "";
 const YOUTUBE_CLIENT_SECRET = process.env.YOUTUBE_CLIENT_SECRET || "";
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+
+// Initialize Anthropic SDK Client
+const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
 let db = {
   series: [],
@@ -44,18 +48,19 @@ app.get("/", (req, res) => res.json({ status: "FacelessReels backend running", v
 // ── AI SCRIPT GENERATION ──────────────────────────────────────────────────────
 app.post("/api/generate-script", async (req, res) => {
   try {
-    const { theme, artStyle, voice } = req.body;
-    const response = await axios.post(
-      "https://api.anthropic.com/v1/messages",
-      {
-        model: "claude-sonnet-4-6",
-        max_tokens: 1000,
-        messages: [
-          {
-            role: "user",
-            content: `Generate a compelling 45-60 second faceless reel script for theme: "${theme}".
-Art style: ${artStyle}. Voice tone: ${voice}.
-Return ONLY valid JSON (no markdown):
+    const { theme, artStyle, voice, themeLabel, themeDesc } = req.body;
+    const promptTheme = themeLabel || theme || "General Knowledge";
+    const promptDesc = themeDesc || "";
+
+    const response = await anthropic.messages.create({
+      model: "claude-3-5-sonnet-20240620",
+      max_tokens: 1000,
+      messages: [
+        {
+          role: "user",
+          content: `Generate a compelling 45-60 second faceless reel script for theme: "${promptTheme} — ${promptDesc}".
+Art style: ${artStyle || "cinematic"}. Voice tone: ${voice || "engaging"}.
+Return ONLY valid JSON (no markdown formatting or backticks):
 {
   "title": "punchy video title",
   "hook": "first 2-3 sentences to grab attention",
@@ -65,22 +70,16 @@ Return ONLY valid JSON (no markdown):
   "imagePrompts": ["scene 1 description for AI image","scene 2","scene 3"],
   "estimatedDuration": "52s"
 }`,
-          },
-        ],
-      },
-      {
-        headers: {
-          "x-api-key": ANTHROPIC_API_KEY,
-          "anthropic-version": "2023-06-01",
-          "Content-Type": "application/json",
         },
-      }
-    );
-    const raw = response.data.content.map((b) => b.text || "").join("");
+      ],
+    });
+
+    const raw = response.content.map((b) => b.text || "").join("");
     const clean = raw.replace(/```json|```/g, "").trim();
     const script = JSON.parse(clean);
     res.json({ success: true, script });
   } catch (err) {
+    console.error("Error generating script:", err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -132,7 +131,7 @@ app.get("/auth/tiktok", (req, res) => {
 
 app.get("/auth/tiktok/callback", async (req, res) => {
   try {
-    const { code, state } = req.query;
+    const { code } = req.query;
     const response = await axios.post(
       "https://open.tiktokapis.com/v2/oauth/token/",
       new URLSearchParams({
@@ -251,10 +250,9 @@ const generateAndPostVideo = async (series) => {
     db.jobs.push(job);
     saveDb();
 
-    // Post to platforms
     const results = {};
 
-    if (series.platforms.includes("tiktok") && db.tokens.tiktok) {
+    if (series.platforms?.includes("tiktok") && db.tokens.tiktok) {
       try {
         await refreshTikTokToken();
         results.tiktok = await postToTikTok(script, series);
@@ -264,7 +262,7 @@ const generateAndPostVideo = async (series) => {
       }
     }
 
-    if (series.platforms.includes("youtube") && db.tokens.youtube) {
+    if (series.platforms?.includes("youtube") && db.tokens.youtube) {
       try {
         await refreshYouTubeToken();
         results.youtube = await postToYouTube(script, series);
@@ -295,7 +293,6 @@ const generateAndPostVideo = async (series) => {
 const postToTikTok = async (script, series) => {
   const token = db.tokens.tiktok.access_token;
 
-  // Initialize upload
   const initRes = await axios.post(
     "https://open.tiktokapis.com/v2/post/publish/video/init/",
     {
@@ -327,7 +324,6 @@ const postToYouTube = async (script, series) => {
 
   const description = `${script.hook}\n\n${script.body}\n\n${script.cta}\n\n${script.hashtags.join(" ")}`;
 
-  // Insert video metadata (actual upload needs video file)
   const metaRes = await axios.post(
     "https://www.googleapis.com/youtube/v3/videos?part=snippet,status",
     {
