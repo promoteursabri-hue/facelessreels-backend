@@ -18,7 +18,13 @@ app.use(express.json());
 const publicDir = path.join(__dirname, "public/audio");
 if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
 
-app.use("/audio", express.static(publicDir));
+// Serve static audio files with proper headers for web players
+app.use("/audio", express.static(publicDir, {
+  setHeaders: (res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Content-Type", "audio/mpeg");
+  }
+}));
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "dummy_key");
 
@@ -26,15 +32,20 @@ app.get("/", (req, res) => {
   res.status(200).json({ status: "ok", message: "Faceless Engine Active" });
 });
 
-// Deep English Voice Generator (Google Engine)
+// Download reliable TTS stream
 function downloadTTS(text, filePath) {
   return new Promise((resolve, reject) => {
-    const encodedText = encodeURIComponent(text.substring(0, 250));
-    // tl=en-uk produces a deeper cinematic tone
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodedText}&tl=en-uk&client=tw-ob`;
+    const encodedText = encodeURIComponent(text.substring(0, 200));
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodedText}&tl=en&client=tw-ob`;
+
+    const options = {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+      }
+    };
 
     const file = fs.createWriteStream(filePath);
-    https.get(url, (response) => {
+    https.get(url, options, (response) => {
       response.pipe(file);
       file.on("finish", () => {
         file.close(resolve);
@@ -48,23 +59,23 @@ function downloadTTS(text, filePath) {
 
 function generateFallbackStory() {
   const hooks = [
-    "Never look out your window after 3 AM.",
+    "Never look under your bed after 3 AM.",
     "Did you know some whispers aren't inside your head?",
-    "If you hear your name called in an empty house, do not reply.",
-    "An abandoned radio tower began broadcasting last night."
+    "If you hear your name called in an empty room, ignore it.",
+    "An abandoned station started broadcasting signals yesterday."
   ];
   const stories = [
     "Security footage caught a dark silhouette standing near the forest line, staring directly into the lens for hours.",
     "A lost hiker sent one final text containing an audio clip of heavy breathing coming from right behind him.",
     "Local legends say if you whistle in these woods, a voice copies your melody from high in the trees.",
-    "In 1920, a forgotten lighthouse transmitted Morse code distress signals despite being completely vacant."
+    "In 1920, an abandoned lighthouse broadcast Morse code distress signals despite being completely vacant."
   ];
   const idx = Math.floor(Math.random() * hooks.length);
   return {
-    title: "Creepy Story #" + Math.floor(Math.random() * 900 + 100),
+    title: "Creepy Encounter #" + Math.floor(Math.random() * 900 + 100),
     hook: hooks[idx],
     body: stories[idx],
-    cta: "Follow for more real creepy encounters!"
+    cta: "Follow for more real horror stories!"
   };
 }
 
@@ -74,7 +85,7 @@ app.post("/api/generate-script", async (req, res) => {
 
   try {
     if (!process.env.GEMINI_API_KEY) {
-      throw new Error("No API Key");
+      throw new Error("No API key provided");
     }
 
     const model = genAI.getGenerativeModel({ 
@@ -82,14 +93,14 @@ app.post("/api/generate-script", async (req, res) => {
       generationConfig: { responseMimeType: "application/json" }
     });
 
-    const prompt = `Write a terrifying 15-second horror story for a viral Reel. 
-Theme: "${theme || "Scary Stories"}". 
-Respond ONLY with JSON matching this exact structure:
+    const prompt = `Write a short terrifying horror story for a video reel. 
+Theme: "${theme || "Scary Stories"}".
+Respond ONLY with a JSON object strictly matching this schema:
 {
   "title": "Creepy Title",
-  "hook": "Spooky hook sentence",
-  "body": "Detailed 2-sentence scary story",
-  "cta": "Follow for more horror!"
+  "hook": "Attention grabbing first line",
+  "body": "The terrifying story details in 2 short sentences",
+  "cta": "Follow for more!"
 }`;
 
     const result = await model.generateContent(prompt);
@@ -100,7 +111,7 @@ Respond ONLY with JSON matching this exact structure:
   }
 
   try {
-    const speechText = `${scriptData.hook}. ... ${scriptData.body}`;
+    const speechText = `${scriptData.hook}. ${scriptData.body}`;
     const timestamp = Date.now();
     const fileName = `voice_${timestamp}.mp3`;
     const filePath = path.join(publicDir, fileName);
@@ -124,20 +135,29 @@ Respond ONLY with JSON matching this exact structure:
   }
 });
 
-// Dynamic HD Vertical Video MP4 Stream Pool
+// Guaranteed 9:16 background motion assets
 app.post("/api/render-video", async (req, res) => {
-  const videos = [
-    "https://cdn.coverr.co/videos/coverr-dark-foggy-forest-5544/1080p.mp4",
-    "https://cdn.coverr.co/videos/coverr-scary-haunted-house-at-night-8492/1080p.mp4",
-    "https://cdn.coverr.co/videos/coverr-creepy-dark-tunnel-4198/1080p.mp4",
-    "https://cdn.coverr.co/videos/coverr-misty-night-street-9182/1080p.mp4"
+  const videoPool = [
+    {
+      video: "https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-dark-43286-large.mp4",
+      poster: "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=1080&q=1920"
+    },
+    {
+      video: "https://assets.mixkit.co/videos/preview/mixkit-trees-in-a-dark-forest-43285-large.mp4",
+      poster: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=1080&q=1920"
+    },
+    {
+      video: "https://assets.mixkit.co/videos/preview/mixkit-mysterious-fog-in-a-dark-forest-43287-large.mp4",
+      poster: "https://images.unsplash.com/photo-1508739773434-c26b3d09e071?auto=format&fit=crop&w=1080&q=1920"
+    }
   ];
-  
-  const selectedVideo = videos[Math.floor(Math.random() * videos.length)];
+
+  const selected = videoPool[Math.floor(Math.random() * videoPool.length)];
 
   return res.status(200).json({
     success: true,
-    videoUrl: selectedVideo
+    videoUrl: selected.video,
+    posterUrl: selected.poster
   });
 });
 
