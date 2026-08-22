@@ -21,10 +21,12 @@ app.use("/audio", (req, res, next) => {
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
+// High-Tension, Disturbing Background Audio Tracks
 const BACKGROUND_MUSIC = [
-  "https://assets.mixkit.co/music/preview/mixkit-creepy-ambience-2506.mp3",
+  "https://assets.mixkit.co/music/preview/mixkit-scary-suspense-2509.mp3",
   "https://assets.mixkit.co/music/preview/mixkit-horror-drone-2508.mp3",
-  "https://assets.mixkit.co/music/preview/mixkit-scary-suspense-2509.mp3"
+  "https://assets.mixkit.co/music/preview/mixkit-creepy-ambience-2506.mp3",
+  "https://assets.mixkit.co/music/preview/mixkit-ticking-clock-suspense-2878.mp3"
 ];
 
 app.get("/", (req, res) => {
@@ -33,7 +35,7 @@ app.get("/", (req, res) => {
 
 app.post("/api/generate-script", async (req, res) => {
   const { theme } = req.body;
-  const currentTheme = theme || "Urban Legends";
+  const currentTheme = theme || "3 AM Smart Home Warnings";
 
   try {
     const model = genAI.getGenerativeModel({ 
@@ -41,21 +43,20 @@ app.post("/api/generate-script", async (req, res) => {
       generationConfig: { responseMimeType: "application/json" }
     });
 
-    // Upgraded prompt engineering for high viral retention and creepy tone
-    const prompt = `You are a master viral horror writer for TikTok and Reels.
-Write a terrifying, immersive 15 to 20 second horror story.
-Theme/Genre: "${currentTheme}".
+    const prompt = `You are a viral TikTok horror writer specializing in hyper-realistic psychological confessions.
+Sub-genre/Theme: "${currentTheme}".
 
-STRICT RULES:
-1. Start immediately with a high-retention curiosity hook (e.g., "If you hear tapping on your window at 3 AM...").
-2. Build intense, visceral atmospheric tension in short, dramatic sentences.
-3. End with a disturbing, lingering twist ending.
-4. Keep the text under 45 total words so the narration sounds paced, creepy, and deliberate.
+STRICT CREATIVE GUIDELINES:
+1. Write in the FIRST PERSON ("I", "my"). Make it feel like a real warning or confession.
+2. Hook (0-3s): Start immediately with an unsettling everyday situation (e.g., "My smart camera alerted me to motion at 3:14 AM...", "I bought a house with a locked basement...").
+3. Escalation (3-10s): Build visceral fear through sensory details (silence, shadows, cold air, soft breathing).
+4. Twist Ending (10-15s): Deliver a devastating, unnerving realization.
+5. Max length: 40-45 words total. Write short, punchy sentences for dramatic pauses.
 
-Respond ONLY with a JSON object strictly matching this schema:
+Respond ONLY with a JSON object:
 {
-  "title": "Short Creepy Title",
-  "fullStory": "The short punchy horror narrative text goes here."
+  "title": "CREEPY HOOK TITLE",
+  "fullStory": "Your terrifying first-person horror story goes here."
 }`;
 
     const result = await model.generateContent(prompt);
@@ -69,7 +70,6 @@ Respond ONLY with a JSON object strictly matching this schema:
     let selectedVoiceId = "pNInz6obpgDQGcFmaJgB"; // Default fallback (Adam)
 
     if (process.env.ELEVENLABS_API_KEY) {
-      // 1. Find the best deep narrator voice available in the account
       try {
         const voicesRes = await axios.get("https://api.elevenlabs.io/v1/voices", {
           headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY.trim() }
@@ -82,10 +82,9 @@ Respond ONLY with a JSON object strictly matching this schema:
           selectedVoiceId = horrorVoice ? horrorVoice.voice_id : voicesRes.data.voices[0].voice_id;
         }
       } catch (vErr) {
-        console.warn("Using fallback voice ID.");
+        console.warn("Using default voice ID fallback.");
       }
 
-      // 2. Synthesize with Cinematic Horror Settings
       const response = await axios({
         method: "post",
         url: `https://api.elevenlabs.io/v1/text-to-speech/${selectedVoiceId}`,
@@ -95,11 +94,11 @@ Respond ONLY with a JSON object strictly matching this schema:
         },
         data: {
           text: scriptData.fullStory,
-          model_id: "eleven_multilingual_v2", // Richer, more expressive audio quality
+          model_id: "eleven_multilingual_v2",
           voice_settings: {
-            stability: 0.25,        // Lower stability = pitch fluctuations, ominous whisper tones
-            similarity_boost: 0.85, // Higher similarity = deeper vocal presence
-            style: 0.45,            // Adds dramatic emphasis and tension to performance
+            stability: 0.25,
+            similarity_boost: 0.85,
+            style: 0.45,
             use_speaker_boost: true
           }
         },
@@ -131,7 +130,6 @@ Respond ONLY with a JSON object strictly matching this schema:
   }
 });
 
-// Fetch HD Vertical Dark Video from Pexels API
 app.post("/api/render-video", async (req, res) => {
   try {
     const queries = ["dark fog forest", "spooky shadows night", "scary abandoned house", "creepy dark hallway"];
