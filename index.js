@@ -21,9 +21,6 @@ app.use("/audio", (req, res, next) => {
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
-// Default fallback voice ID (Adam)
-let ELEVENLABS_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
-
 const BACKGROUND_MUSIC = [
   "https://assets.mixkit.co/music/preview/mixkit-creepy-ambience-2506.mp3",
   "https://assets.mixkit.co/music/preview/mixkit-horror-drone-2508.mp3",
@@ -44,12 +41,21 @@ app.post("/api/generate-script", async (req, res) => {
       generationConfig: { responseMimeType: "application/json" }
     });
 
-    const prompt = `Write an intense 15-second viral horror story for a video reel.
-Sub-genre/Theme: "${currentTheme}".
+    // Upgraded prompt engineering for high viral retention and creepy tone
+    const prompt = `You are a master viral horror writer for TikTok and Reels.
+Write a terrifying, immersive 15 to 20 second horror story.
+Theme/Genre: "${currentTheme}".
+
+STRICT RULES:
+1. Start immediately with a high-retention curiosity hook (e.g., "If you hear tapping on your window at 3 AM...").
+2. Build intense, visceral atmospheric tension in short, dramatic sentences.
+3. End with a disturbing, lingering twist ending.
+4. Keep the text under 45 total words so the narration sounds paced, creepy, and deliberate.
+
 Respond ONLY with a JSON object strictly matching this schema:
 {
-  "title": "Creepy Title",
-  "fullStory": "First hook line. Second terrifying line. Third final creepy sentence."
+  "title": "Short Creepy Title",
+  "fullStory": "The short punchy horror narrative text goes here."
 }`;
 
     const result = await model.generateContent(prompt);
@@ -60,40 +66,48 @@ Respond ONLY with a JSON object strictly matching this schema:
     const fileName = `voice_${timestamp}.mp3`;
     const filePath = path.join(publicDir, fileName);
 
+    let selectedVoiceId = "pNInz6obpgDQGcFmaJgB"; // Default fallback (Adam)
+
     if (process.env.ELEVENLABS_API_KEY) {
-      // 1. Get first available valid voice ID dynamically from your account
+      // 1. Find the best deep narrator voice available in the account
       try {
         const voicesRes = await axios.get("https://api.elevenlabs.io/v1/voices", {
-          headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY }
+          headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY.trim() }
         });
+        
         if (voicesRes.data.voices && voicesRes.data.voices.length > 0) {
-          ELEVENLABS_VOICE_ID = voicesRes.data.voices[0].voice_id;
+          const horrorVoice = voicesRes.data.voices.find(v => 
+            ["Marcus", "Adam", "George", "Callum", "Clyde"].includes(v.name)
+          );
+          selectedVoiceId = horrorVoice ? horrorVoice.voice_id : voicesRes.data.voices[0].voice_id;
         }
       } catch (vErr) {
-        console.warn("Could not fetch custom voice list, using default fallback ID.");
+        console.warn("Using fallback voice ID.");
       }
 
-      // 2. Synthesize Speech
+      // 2. Synthesize with Cinematic Horror Settings
       const response = await axios({
         method: "post",
-        url: `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
+        url: `https://api.elevenlabs.io/v1/text-to-speech/${selectedVoiceId}`,
         headers: {
           "xi-api-key": process.env.ELEVENLABS_API_KEY.trim(),
           "Content-Type": "application/json"
         },
         data: {
           text: scriptData.fullStory,
-          model_id: "eleven_turbo_v2_5", // Fast, universal model supported on all tiers
+          model_id: "eleven_multilingual_v2", // Richer, more expressive audio quality
           voice_settings: {
-            stability: 0.35,
-            similarity_boost: 0.75
+            stability: 0.25,        // Lower stability = pitch fluctuations, ominous whisper tones
+            similarity_boost: 0.85, // Higher similarity = deeper vocal presence
+            style: 0.45,            // Adds dramatic emphasis and tension to performance
+            use_speaker_boost: true
           }
         },
         responseType: "arraybuffer"
       });
       fs.writeFileSync(filePath, response.data);
     } else {
-      throw new Error("ELEVENLABS_API_KEY missing in Railway environment variables");
+      throw new Error("ELEVENLABS_API_KEY missing");
     }
 
     const protocol = req.headers["x-forwarded-proto"] || "https";
@@ -112,24 +126,15 @@ Respond ONLY with a JSON object strictly matching this schema:
     });
 
   } catch (error) {
-    let errorDetails = error.message;
-    if (error.response && error.response.data) {
-      try {
-        const parsedData = JSON.parse(Buffer.from(error.response.data).toString());
-        errorDetails = parsedData.detail?.message || parsedData.message || JSON.stringify(parsedData);
-      } catch (e) {
-        errorDetails = error.response.statusText || error.message;
-      }
-    }
-    console.error("Pipeline Error:", errorDetails);
-    return res.status(500).json({ success: false, error: `ElevenLabs Error: ${errorDetails}` });
+    console.error("Pipeline Error:", error.message);
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 
 // Fetch HD Vertical Dark Video from Pexels API
 app.post("/api/render-video", async (req, res) => {
   try {
-    const queries = ["dark forest", "foggy night", "creepy hallway", "scary house", "abandoned building"];
+    const queries = ["dark fog forest", "spooky shadows night", "scary abandoned house", "creepy dark hallway"];
     const query = queries[Math.floor(Math.random() * queries.length)];
 
     let videoUrl = "https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-dark-43286-large.mp4";
