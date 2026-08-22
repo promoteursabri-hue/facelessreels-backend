@@ -6,19 +6,28 @@ const fs = require("fs");
 const path = require("path");
 const https = require("https");
 
-// Use global system ffmpeg installed via nixpacks
-ffmpeg.setFfmpegPath("ffmpeg");
-
 const app = express();
-app.use(cors());
+
+// 1. Enable full CORS for browser requests (StackBlitz pre-flights)
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
 app.use(express.json());
 
-app.use("/videos", express.static(path.join(__dirname, "public/videos")));
+// Set global system FFmpeg
+ffmpeg.setFfmpegPath("ffmpeg");
 
+// Serve video directory publicly
 const publicDir = path.join(__dirname, "public/videos");
 const tempDir = path.join(__dirname, "temp");
+
 if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+app.use("/videos", express.static(publicDir));
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || "sk-dummy",
@@ -36,10 +45,12 @@ const downloadFile = (url, dest) => {
   });
 };
 
+// Healthcheck Route
 app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "System FFmpeg Engine Active" });
+  res.status(200).json({ status: "ok", message: "FFmpeg Server Live!" });
 });
 
+// Step 1: Script Generation
 app.post("/api/generate-script", async (req, res) => {
   const { theme, desc } = req.body;
   try {
@@ -75,6 +86,7 @@ Respond ONLY with a JSON object: {"title":"Title","hook":"Hook line","body":"Sto
   }
 });
 
+// Step 2: Native Render
 app.post("/api/render-video", async (req, res) => {
   const timestamp = Date.now();
   const audioPath = path.join(tempDir, `audio_${timestamp}.mp3`);
@@ -116,12 +128,17 @@ app.post("/api/render-video", async (req, res) => {
         return res.status(200).json({ success: true, videoUrl });
       })
       .on("error", (err) => {
-        throw err;
+        console.error("FFmpeg error:", err);
+        return res.status(500).json({ success: false, error: err.message });
       });
+
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message });
   }
 });
 
+// Bind explicitly to 0.0.0.0 for Railway networking
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server listening on 0.0.0.0:${PORT}`);
+});
