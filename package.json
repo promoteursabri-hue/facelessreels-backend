@@ -1,14 +1,14 @@
 {
   "name": "facelessreels-backend",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
+    "axios": "^1.7.2",
     "cors": "^2.8.5",
-    "express": "^4.19.2",
-    "gtts": "^0.2.1"
+    "express": "^4.19.2"
   }
 }
