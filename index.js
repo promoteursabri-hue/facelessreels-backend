@@ -9,6 +9,7 @@ const https = require("https");
 
 const app = express();
 
+// Enable full CORS for browser requests (StackBlitz pre-flights)
 app.use(cors({
   origin: "*",
   methods: ["GET", "POST", "OPTIONS"],
@@ -17,9 +18,10 @@ app.use(cors({
 
 app.use(express.json());
 
-// Point fluent-ffmpeg directly to the static binary executable
+// Point fluent-ffmpeg directly to static binary
 ffmpeg.setFfmpegPath(ffmpegPath);
 
+// Directory Setup
 const publicDir = path.join(__dirname, "public/videos");
 const tempDir = path.join(__dirname, "temp");
 
@@ -32,6 +34,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || "sk-dummy",
 });
 
+// Helper: Download assets
 const downloadFile = (url, dest) => {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest);
@@ -44,10 +47,12 @@ const downloadFile = (url, dest) => {
   });
 };
 
+// Healthcheck Route
 app.get("/", (req, res) => {
   res.status(200).json({ status: "ok", message: "FFmpeg Server Live!" });
 });
 
+// Step 1: OpenAI Script Generation
 app.post("/api/generate-script", async (req, res) => {
   const { theme, desc } = req.body;
   try {
@@ -83,6 +88,7 @@ Respond ONLY with a JSON object: {"title":"Title","hook":"Hook line","body":"Sto
   }
 });
 
+// Step 2: Local FFmpeg Video Rendering
 app.post("/api/render-video", async (req, res) => {
   const timestamp = Date.now();
   const audioPath = path.join(tempDir, `audio_${timestamp}.mp3`);
@@ -97,20 +103,45 @@ app.post("/api/render-video", async (req, res) => {
     await downloadFile(audioUrl || "https://cdn.creatomate.com/demo/sample.mp3", audioPath);
     await downloadFile(bgImageUrl, imagePath);
 
-    const subtitleText = `${script?.hook || ''}\n\n${script?.body || ''}`.replace(/'/g, "");
+    // Sanitize string characters for FFmpeg filter safety
+    const cleanHook = (script?.hook || "Check this out").replace(/[':\\]/g, "");
+    const cleanBody = (script?.body || "").replace(/[':\\]/g, "");
+    const displayText = `${cleanHook} - ${cleanBody}`;
 
     ffmpeg()
       .input(imagePath)
       .loop(10)
       .input(audioPath)
+      .videoFilters([
+        {
+          filter: 'scale',
+          options: '1080:1920:force_original_aspect_ratio=increase'
+        },
+        {
+          filter: 'crop',
+          options: '1080:1920'
+        },
+        {
+          filter: 'drawtext',
+          options: {
+            text: displayText,
+            fontcolor: 'white',
+            fontsize: 38,
+            x: '(w-text_w)/2',
+            y: '(h-text_h)/2',
+            box: 1,
+            boxcolor: 'black@0.6',
+            boxborderw: 10
+          }
+        }
+      ])
       .outputOptions([
         "-c:v libx264",
         "-tune stillimage",
         "-c:a aac",
         "-b:a 192k",
         "-pix_fmt yuv420p",
-        "-shortest",
-        `-vf scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,drawtext=text='${subtitleText}':fontcolor=white:fontsize=42:x=(w-text_w)/2:y=(h-text_h)/2:box=1:boxcolor=black@0.6:boxborderw=10`
+        "-shortest"
       ])
       .save(outputPath)
       .on("end", () => {
