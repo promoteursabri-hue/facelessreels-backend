@@ -1,267 +1,31 @@
-const fs = require("fs");
-const path = require("path");
-const https = require("https");
-const http = require("http");
-const { execSync, exec } = require("child_process");
-
-const TMP = "/tmp/facelessreels";
-if (!fs.existsSync(TMP)) fs.mkdirSync(TMP, { recursive: true });
-
-// ── FETCH HELPER ─────────────────────────────────────────────────────────────
-const fetchBuffer = (url) =>
-  new Promise((resolve, reject) => {
-    const client = url.startsWith("https") ? https : http;
-    client
-      .get(url, (res) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          return fetchBuffer(res.headers.location).then(resolve).catch(reject);
-        }
-        const chunks = [];
-        res.on("data", (c) => chunks.push(c));
-        res.on("end", () => resolve(Buffer.concat(chunks)));
-        res.on("error", reject);
-      })
-      .on("error", reject);
-  });
-
-// ── 1. GENERATE IMAGES VIA POLLINATIONS.AI ───────────────────────────────────
-const generateImage = async (prompt, index, sessionId) => {
-  const encoded = encodeURIComponent(
-    `${prompt}, cinematic, high quality, dramatic lighting, no text, no watermark`
-  );
-  const url = `https://image.pollinations.ai/prompt/${encoded}?width=1080&height=1920&seed=${index + sessionId}&nologo=true`;
-  console.log(`[IMG] Generating image ${index + 1}...`);
-  const buf = await fetchBuffer(url);
-  const imgPath = path.join(TMP, `${sessionId}_img_${index}.jpg`);
-  fs.writeFileSync(imgPath, buf);
-  console.log(`[IMG] Saved ${imgPath} (${buf.length} bytes)`);
-  return imgPath;
-};
-
-// ── 2. GENERATE AUDIO VIA GOOGLE TTS ─────────────────────────────────────────
-const generateAudio = async (text, sessionId) => {
-  const cleanText = text.replace(/[^\w\s.,!?'-]/g, "").slice(0, 200);
-  const encoded = encodeURIComponent(cleanText);
-  const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=en&client=tw-ob`;
-  console.log(`[TTS] Generating audio...`);
-  const buf = await fetchBuffer(url);
-  const audioPath = path.join(TMP, `${sessionId}_audio.mp3`);
-  fs.writeFileSync(audioPath, buf);
-  console.log(`[TTS] Saved ${audioPath} (${buf.length} bytes)`);
-  return audioPath;
-};
-
-// ── 3. CHECK FFMPEG ───────────────────────────────────────────────────────────
-const checkFfmpeg = () => {
-  try {
-    execSync("ffmpeg -version", { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-// ── 4. STITCH VIDEO WITH FFMPEG ───────────────────────────────────────────────
-const stitchVideo = async (imagePaths, audioPath, script, sessionId) => {
-  const outputPath = path.join(TMP, `${sessionId}_output.mp4`);
-  const listPath = path.join(TMP, `${sessionId}_list.txt`);
-
-  const totalImages = imagePaths.length;
-  const durationEach = Math.max(3, Math.floor(55 / totalImages));
-
-  // Write concat list
-  const listContent = imagePaths
-    .map((p) => `file '${p}'\nduration ${durationEach}`)
-    .join("\n");
-  fs.writeFileSync(listPath, listContent);
-
-  // Build caption overlay filter
-  const captionText = script.title
-    .replace(/'/g, "\\'")
-    .replace(/:/g, "\\:")
-    .replace(/\[/g, "\\[")
-    .replace(/\]/g, "\\]");
-
-  const ffmpegCmd = [
-    "ffmpeg -y",
-    `-f concat -safe 0 -i "${listPath}"`,
-    `-i "${audioPath}"`,
-    `-vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,`,
-    `drawtext=text='${captionText}':fontcolor=white:fontsize=48:`,
-    `box=1:boxcolor=black@0.5:boxborderw=10:`,
-    `x=(w-text_w)/2:y=h-200:`,
-    `fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"`,
-    `-c:v libx264 -preset fast -crf 23`,
-    `-c:a aac -b:a 128k`,
-    `-shortest`,
-    `-pix_fmt yuv420p`,
-    `"${outputPath}"`,
-  ]
-    .join(" ")
-    .replace(/\n/g, " ");
-
-  console.log(`[FFMPEG] Stitching video...`);
-  return new Promise((resolve, reject) => {
-    exec(ffmpegCmd, (err, stdout, stderr) => {
-      if (err) {
-        console.error("[FFMPEG] Error:", stderr);
-        reject(new Error(`FFmpeg failed: ${stderr.slice(-200)}`));
-      } else {
-        console.log(`[FFMPEG] Output: ${outputPath}`);
-        resolve(outputPath);
-      }
-    });
-  });
-};
-
-// ── 5. MAIN GENERATE FUNCTION ─────────────────────────────────────────────────
-const generateVideo = async (script, series) => {
-  const sessionId = Date.now();
-  console.log(`[VIDEO] Starting generation for: ${script.title}`);
-
-  if (!checkFfmpeg()) {
-    throw new Error("FFmpeg not installed. Run: apt-get install -y ffmpeg");
-  }
-
-  // Generate 4-5 images based on script scene prompts
-  const imagePrompts = script.imagePrompts || [
-    `${series.theme} dramatic scene, ${script.title}`,
-    `${series.theme} storytelling visual, cinematic`,
-    `${series.theme} emotional moment, dark atmosphere`,
-    `${series.theme} climax scene, epic`,
-  ];
-
-  const imagePaths = [];
-  for (let i = 0; i < Math.min(imagePrompts.length, 4); i++) {
-    try {
-      const imgPath = await generateImage(imagePrompts[i], i, sessionId);
-      imagePaths.push(imgPath);
-      // Small delay to avoid rate limiting
-      await new Promise((r) => setTimeout(r, 1500));
-    } catch (e) {
-      console.error(`[IMG] Failed image ${i}:`, e.message);
-    }
-  }
-
-  if (imagePaths.length === 0) {
-    throw new Error("No images generated");
-  }
-
-  // Generate narration audio
-  const narrationText = `${script.hook} ${script.body} ${script.cta}`;
-  const audioPath = await generateAudio(narrationText, sessionId);
-
-  // Stitch everything into MP4
-  const videoPath = await stitchVideo(imagePaths, audioPath, script, sessionId);
-
-  // Cleanup temp files
-  imagePaths.forEach((p) => { try { fs.unlinkSync(p); } catch {} });
-  try { fs.unlinkSync(audioPath); } catch {}
-
-  console.log(`[VIDEO] Done: ${videoPath}`);
-  return videoPath;
-};
-
-// ── 6. UPLOAD TO TIKTOK ───────────────────────────────────────────────────────
-const uploadToTikTok = async (videoPath, script, tokens) => {
-  const axios = require("axios");
-  const FormData = require("form-data");
-  const token = tokens.tiktok.access_token;
-  const videoBuffer = fs.readFileSync(videoPath);
-  const videoSize = videoBuffer.length;
-
-  // Init upload
-  const initRes = await axios.post(
-    "https://open.tiktokapis.com/v2/post/publish/video/init/",
-    {
-      post_info: {
-        title: `${script.title} ${script.hashtags?.join(" ") || ""}`.slice(0, 2200),
-        privacy_level: "PUBLIC_TO_EVERYONE",
-        disable_duet: false,
-        disable_comment: false,
-        disable_stitch: false,
-        video_cover_timestamp_ms: 1000,
-      },
-      source_info: {
-        source: "FILE_UPLOAD",
-        video_size: videoSize,
-        chunk_size: videoSize,
-        total_chunk_count: 1,
-      },
-    },
-    { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
-  );
-
-  const { upload_url, publish_id } = initRes.data.data;
-
-  // Upload chunk
-  await axios.put(upload_url, videoBuffer, {
-    headers: {
-      "Content-Type": "video/mp4",
-      "Content-Range": `bytes 0-${videoSize - 1}/${videoSize}`,
-      "Content-Length": videoSize,
-    },
-  });
-
-  console.log(`[TIKTOK] Uploaded. Publish ID: ${publish_id}`);
-  return { publish_id };
-};
-
-// ── 7. UPLOAD TO YOUTUBE ──────────────────────────────────────────────────────
-const uploadToYouTube = async (videoPath, script, series, tokens) => {
-  const axios = require("axios");
-  const token = tokens.youtube.access_token;
-  const videoBuffer = fs.readFileSync(videoPath);
-  const videoSize = videoBuffer.length;
-
-  const description = [
-    script.hook,
-    script.body,
-    script.cta,
-    "",
-    script.hashtags?.join(" ") || "",
-  ].join("\n");
-
-  // Resumable upload init
-  const initRes = await axios.post(
-    `https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status`,
-    {
-      snippet: {
-        title: script.title.slice(0, 100),
-        description: description.slice(0, 5000),
-        tags: script.hashtags?.map((h) => h.replace("#", "")) || [],
-        categoryId: "24",
-      },
-      status: {
-        privacyStatus: "public",
-        selfDeclaredMadeForKids: false,
-      },
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        "X-Upload-Content-Type": "video/mp4",
-        "X-Upload-Content-Length": videoSize,
-      },
-    }
-  );
-
-  const uploadUrl = initRes.headers.location;
-
-  // Upload video
-  const uploadRes = await axios.put(uploadUrl, videoBuffer, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "video/mp4",
-      "Content-Length": videoSize,
-    },
-    maxContentLength: Infinity,
-    maxBodyLength: Infinity,
-  });
-
-  console.log(`[YOUTUBE] Uploaded. Video ID: ${uploadRes.data.id}`);
-  return { videoId: uploadRes.data.id };
-};
-
-module.exports = { generateVideo, uploadToTikTok, uploadToYouTube };
+{previewData && (
+  <div style={{
+    width: '360px',
+    height: '640px',
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: '12px',
+    backgroundImage: `url(${previewData.bgImageUrl})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: '20px',
+    textAlign: 'center'
+  }}>
+    <audio src={previewData.audioUrl} autoPlay loop controls style={{ position: 'absolute', bottom: '20px', width: '80%' }} />
+    <div style={{
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      color: 'white',
+      padding: '15px',
+      borderRadius: '8px',
+      fontSize: '18px',
+      fontWeight: 'bold'
+    }}>
+      <p style={{ margin: '0 0 10px 0', color: '#ffd700' }}>{previewData.hook}</p>
+      <p style={{ margin: 0 }}>{previewData.body}</p>
+    </div>
+  </div>
+)}
