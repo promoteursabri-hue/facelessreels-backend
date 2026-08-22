@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-const { GoogleGenAI } = require("@google/genai");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
@@ -21,7 +21,7 @@ if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
 app.use("/audio", express.static(publicDir));
 
 // Initialize Google Gemini SDK
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get("/", (req, res) => {
   res.status(200).json({ status: "ok", message: "Free Gemini & TTS Server Active" });
@@ -30,7 +30,7 @@ app.get("/", (req, res) => {
 // Helper function to fetch audio from Google TTS via HTTPS
 function downloadTTS(text, filePath) {
   return new Promise((resolve, reject) => {
-    const encodedText = encodeURIComponent(text.substring(0, 200)); // safe limit for query string
+    const encodedText = encodeURIComponent(text.substring(0, 200));
     const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodedText}&tl=en&client=tw-ob`;
 
     const file = fs.createWriteStream(filePath);
@@ -49,6 +49,11 @@ function downloadTTS(text, filePath) {
 app.post("/api/generate-script", async (req, res) => {
   const { theme, desc } = req.body;
   try {
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      generationConfig: { responseMimeType: "application/json" }
+    });
+
     const prompt = `Write a completely unique, terrifying short scary story for a video reel. 
 Theme: "${theme || "Scary Stories"}". Context: ${desc || "Unexplained events"}.
 Respond ONLY with a valid JSON object strictly matching this schema:
@@ -60,13 +65,8 @@ Respond ONLY with a valid JSON object strictly matching this schema:
 }`;
 
     // 1. Generate new unique script using free Gemini
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: { responseMimeType: "application/json" }
-    });
-
-    const scriptData = JSON.parse(response.text);
+    const result = await model.generateContent(prompt);
+    const scriptData = JSON.parse(result.response.text());
     const speechText = `${scriptData.hook}. ${scriptData.body}`;
 
     // 2. Synthesize free TTS audio using native HTTPS request
