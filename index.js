@@ -20,18 +20,18 @@ if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
 
 app.use("/audio", express.static(publicDir));
 
-// Initialize Google Gemini SDK
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "dummy_key");
 
 app.get("/", (req, res) => {
-  res.status(200).json({ status: "ok", message: "Free Gemini & TTS Server Active" });
+  res.status(200).json({ status: "ok", message: "Faceless Engine Active" });
 });
 
-// Helper function to fetch audio from Google TTS via HTTPS
+// Deep English Voice Generator (Google Engine)
 function downloadTTS(text, filePath) {
   return new Promise((resolve, reject) => {
-    const encodedText = encodeURIComponent(text.substring(0, 200));
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodedText}&tl=en&client=tw-ob`;
+    const encodedText = encodeURIComponent(text.substring(0, 250));
+    // tl=en-uk produces a deeper cinematic tone
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodedText}&tl=en-uk&client=tw-ob`;
 
     const file = fs.createWriteStream(filePath);
     https.get(url, (response) => {
@@ -46,26 +46,25 @@ function downloadTTS(text, filePath) {
   });
 }
 
-// Random story backup engine if API fails or key is missing
 function generateFallbackStory() {
   const hooks = [
-    "Never look under your bed after 3 AM.",
-    "Did you know some whispers aren't in your head?",
-    "If you hear your name called in an empty room, ignore it.",
-    "An abandoned station started broadcasting signals yesterday."
+    "Never look out your window after 3 AM.",
+    "Did you know some whispers aren't inside your head?",
+    "If you hear your name called in an empty house, do not reply.",
+    "An abandoned radio tower began broadcasting last night."
   ];
   const stories = [
-    "Security cameras captured a silhouette standing at the edge of the woods every night at midnight.",
-    "A missing traveler left behind a phone with a three-minute recording of breathing from inside their walls.",
-    "Old urban legends say if you whistle inside a cave, something whistles back closer to you.",
-    "In 1920, an abandoned lighthouse broadcast Morse code warnings with nobody inside."
+    "Security footage caught a dark silhouette standing near the forest line, staring directly into the lens for hours.",
+    "A lost hiker sent one final text containing an audio clip of heavy breathing coming from right behind him.",
+    "Local legends say if you whistle in these woods, a voice copies your melody from high in the trees.",
+    "In 1920, a forgotten lighthouse transmitted Morse code distress signals despite being completely vacant."
   ];
-  const randomIndex = Math.floor(Math.random() * hooks.length);
+  const idx = Math.floor(Math.random() * hooks.length);
   return {
-    title: "Creepy Encounter #" + Math.floor(Math.random() * 1000),
-    hook: hooks[randomIndex],
-    body: stories[randomIndex],
-    cta: "Follow for more real horror stories!"
+    title: "Creepy Story #" + Math.floor(Math.random() * 900 + 100),
+    hook: hooks[idx],
+    body: stories[idx],
+    cta: "Follow for more real creepy encounters!"
   };
 }
 
@@ -75,7 +74,7 @@ app.post("/api/generate-script", async (req, res) => {
 
   try {
     if (!process.env.GEMINI_API_KEY) {
-      throw new Error("GEMINI_API_KEY environment variable is not set on Railway.");
+      throw new Error("No API Key");
     }
 
     const model = genAI.getGenerativeModel({ 
@@ -83,26 +82,25 @@ app.post("/api/generate-script", async (req, res) => {
       generationConfig: { responseMimeType: "application/json" }
     });
 
-    const prompt = `Write a unique terrifying short scary story for a video reel. 
-Theme: "${theme || "Scary Stories"}". Context: ${desc || "Unexplained events"}.
-Respond ONLY with a JSON object matching this schema:
+    const prompt = `Write a terrifying 15-second horror story for a viral Reel. 
+Theme: "${theme || "Scary Stories"}". 
+Respond ONLY with JSON matching this exact structure:
 {
   "title": "Creepy Title",
-  "hook": "Attention grabbing first line",
-  "body": "The terrifying story details in 2 short sentences",
-  "cta": "Follow for more!"
+  "hook": "Spooky hook sentence",
+  "body": "Detailed 2-sentence scary story",
+  "cta": "Follow for more horror!"
 }`;
 
     const result = await model.generateContent(prompt);
     scriptData = JSON.parse(result.response.text());
 
   } catch (error) {
-    console.error("Gemini Generation Error, switching to fallback:", error.message);
     scriptData = generateFallbackStory();
   }
 
   try {
-    const speechText = `${scriptData.hook}. ${scriptData.body}`;
+    const speechText = `${scriptData.hook}. ... ${scriptData.body}`;
     const timestamp = Date.now();
     const fileName = `voice_${timestamp}.mp3`;
     const filePath = path.join(publicDir, fileName);
@@ -122,19 +120,24 @@ Respond ONLY with a JSON object matching this schema:
     });
 
   } catch (ttsError) {
-    console.error("TTS Error:", ttsError.message);
-    return res.status(500).json({
-      success: false,
-      error: "Audio synthesis failed: " + ttsError.message
-    });
+    return res.status(500).json({ success: false, error: ttsError.message });
   }
 });
 
+// Dynamic HD Vertical Video MP4 Stream Pool
 app.post("/api/render-video", async (req, res) => {
-  const { script } = req.body;
+  const videos = [
+    "https://cdn.coverr.co/videos/coverr-dark-foggy-forest-5544/1080p.mp4",
+    "https://cdn.coverr.co/videos/coverr-scary-haunted-house-at-night-8492/1080p.mp4",
+    "https://cdn.coverr.co/videos/coverr-creepy-dark-tunnel-4198/1080p.mp4",
+    "https://cdn.coverr.co/videos/coverr-misty-night-street-9182/1080p.mp4"
+  ];
+  
+  const selectedVideo = videos[Math.floor(Math.random() * videos.length)];
+
   return res.status(200).json({
     success: true,
-    videoUrl: script?.audioUrl || "ready"
+    videoUrl: selectedVideo
   });
 });
 
