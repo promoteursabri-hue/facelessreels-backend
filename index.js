@@ -1,126 +1,141 @@
 const express = require("express");
 const cors = require("cors");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const gTTS = require("gtts");
+const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 
 const app = express();
 
-// Enable CORS for all origins and sound playback
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-}));
-
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
 const publicDir = path.join(__dirname, "public/audio");
 if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
 
-// Serve static audio with forced audio/mpeg content headers
 app.use("/audio", (req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+  res.header("Content-Type", "audio/mpeg");
   next();
 }, express.static(publicDir));
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "dummy_key");
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+
+// ElevenLabs Voice: Adam (Deep, Ominous Narration)
+const ELEVENLABS_VOICE_ID = "pNInz6obpgDQGcFmaJgB"; 
+
+// High Quality Royalty-Free Dark Ambient Background Music Tracks
+const BACKGROUND_MUSIC = [
+  "https://assets.mixkit.co/music/preview/mixkit-creepy-ambience-2506.mp3",
+  "https://assets.mixkit.co/music/preview/mixkit-horror-drone-2508.mp3",
+  "https://assets.mixkit.co/music/preview/mixkit-scary-suspense-2509.mp3"
+];
 
 app.get("/", (req, res) => {
-  res.status(200).json({ status: "ok", message: "Faceless Engine Active" });
+  res.status(200).json({ status: "ok", message: "Faceless Engine v2 Active" });
 });
 
-function generateFallbackStory() {
-  const hooks = [
-    "Never look under your bed after 3 AM.",
-    "Did you know some whispers aren't inside your head?",
-    "If you hear your name called in an empty room, ignore it.",
-    "An abandoned station started broadcasting signals yesterday."
-  ];
-  const stories = [
-    "Security footage caught a dark silhouette standing near the forest line, staring directly into the lens for hours.",
-    "A lost hiker sent one final text containing an audio clip of heavy breathing coming from right behind him.",
-    "Local legends say if you whistle in these woods, a voice copies your melody from high in the trees.",
-    "In 1920, an abandoned lighthouse broadcast Morse code distress signals despite being completely vacant."
-  ];
-  const idx = Math.floor(Math.random() * hooks.length);
-  return {
-    title: "Creepy Story #" + Math.floor(Math.random() * 900 + 100),
-    hook: hooks[idx],
-    body: stories[idx],
-    cta: "Follow for more real horror stories!"
-  };
-}
-
 app.post("/api/generate-script", async (req, res) => {
-  const { theme, desc } = req.body;
-  let scriptData;
+  const { theme } = req.body;
+  const currentTheme = theme || "Urban Legends";
 
   try {
-    if (!process.env.GEMINI_API_KEY) throw new Error("No key");
-
     const model = genAI.getGenerativeModel({ 
       model: "gemini-1.5-flash",
       generationConfig: { responseMimeType: "application/json" }
     });
 
-    const prompt = `Write a short terrifying horror story for a video reel. Theme: "${theme || "Scary Stories"}".
-Respond ONLY with JSON strictly matching this schema:
+    const prompt = `Write an intense 15-second viral horror story for a video reel.
+Sub-genre/Theme: "${currentTheme}".
+Respond ONLY with a JSON object strictly matching this schema:
 {
   "title": "Creepy Title",
-  "hook": "Attention grabbing first line",
-  "body": "The terrifying story details in 2 short sentences",
-  "cta": "Follow for more!"
+  "fullStory": "First hook line. Second terrifying line. Third final creepy sentence."
 }`;
 
     const result = await model.generateContent(prompt);
-    scriptData = JSON.parse(result.response.text());
+    const scriptData = JSON.parse(result.response.text());
+    
+    // Split story into individual words for kinetic subtitles
+    const words = scriptData.fullStory.split(" ");
 
-  } catch (error) {
-    scriptData = generateFallbackStory();
-  }
-
-  try {
-    const speechText = `${scriptData.hook}. ${scriptData.body}`;
+    // 1. Synthesize ElevenLabs Horror Audio
     const timestamp = Date.now();
     const fileName = `voice_${timestamp}.mp3`;
     const filePath = path.join(publicDir, fileName);
 
-    // Render local offline MP3 file
-    const gtts = new gTTS(speechText, "en");
-    await new Promise((resolve, reject) => {
-      gtts.save(filePath, (err) => {
-        if (err) reject(err);
-        else resolve();
+    if (process.env.ELEVENLABS_API_KEY) {
+      const response = await axios({
+        method: "post",
+        url: `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
+        headers: {
+          "xi-api-key": process.env.ELEVENLABS_API_KEY,
+          "Content-Type": "application/json"
+        },
+        data: {
+          text: scriptData.fullStory,
+          model_id: "eleven_monolingual_v1",
+          voice_settings: {
+            stability: 0.35, // Lower stability = more erratic, emotional horror delivery
+            similarity_boost: 0.75
+          }
+        },
+        responseType: "arraybuffer"
       });
-    });
+      fs.writeFileSync(filePath, response.data);
+    } else {
+      throw new Error("ELEVENLABS_API_KEY missing in Railway variables");
+    }
 
     const protocol = req.headers["x-forwarded-proto"] || "https";
     const host = req.get("host");
     const audioUrl = `${protocol}://${host}/audio/${fileName}`;
+    const bgAudioUrl = BACKGROUND_MUSIC[Math.floor(Math.random() * BACKGROUND_MUSIC.length)];
 
     return res.status(200).json({
       success: true,
       script: {
         ...scriptData,
-        audioUrl: audioUrl
+        words: words,
+        audioUrl: audioUrl,
+        bgAudioUrl: bgAudioUrl
       }
     });
 
-  } catch (ttsError) {
-    console.error("Audio generation failed:", ttsError);
-    return res.status(500).json({ success: false, error: ttsError.message });
+  } catch (error) {
+    console.error("Pipeline Error:", error.message);
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 
+// Fetch HD Vertical Dark Video from Pexels API
 app.post("/api/render-video", async (req, res) => {
-  return res.status(200).json({
-    success: true,
-    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-dark-43286-large.mp4",
-    posterUrl: "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=1080&q=1920"
-  });
+  try {
+    const queries = ["dark forest", "foggy night", "creepy hallway", "scary house", "abandoned building"];
+    const query = queries[Math.floor(Math.random() * queries.length)];
+
+    let videoUrl = "https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-dark-43286-large.mp4";
+
+    if (process.env.PEXELS_API_KEY) {
+      const pexelsRes = await axios.get(
+        `https://api.pexels.com/videos/search?query=${query}&orientation=portrait&per_page=15`,
+        { headers: { Authorization: process.env.PEXELS_API_KEY } }
+      );
+
+      if (pexelsRes.data.videos && pexelsRes.data.videos.length > 0) {
+        const randomVid = pexelsRes.data.videos[Math.floor(Math.random() * pexelsRes.data.videos.length)];
+        const hdFile = randomVid.video_files.find(f => f.quality === "hd" || f.width >= 720);
+        if (hdFile) videoUrl = hdFile.link;
+      }
+    }
+
+    return res.status(200).json({ success: true, videoUrl: videoUrl });
+  } catch (err) {
+    return res.status(200).json({ 
+      success: true, 
+      videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-dark-43286-large.mp4" 
+    });
+  }
 });
 
 const PORT = process.env.PORT || 8080;
