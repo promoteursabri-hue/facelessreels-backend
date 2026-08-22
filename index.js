@@ -21,7 +21,7 @@ if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
 app.use("/audio", express.static(publicDir));
 
 // Initialize Google Gemini SDK
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "dummy_key");
 
 app.get("/", (req, res) => {
   res.status(200).json({ status: "ok", message: "Free Gemini & TTS Server Active" });
@@ -46,17 +46,46 @@ function downloadTTS(text, filePath) {
   });
 }
 
+// Random story backup engine if API fails or key is missing
+function generateFallbackStory() {
+  const hooks = [
+    "Never look under your bed after 3 AM.",
+    "Did you know some whispers aren't in your head?",
+    "If you hear your name called in an empty room, ignore it.",
+    "An abandoned station started broadcasting signals yesterday."
+  ];
+  const stories = [
+    "Security cameras captured a silhouette standing at the edge of the woods every night at midnight.",
+    "A missing traveler left behind a phone with a three-minute recording of breathing from inside their walls.",
+    "Old urban legends say if you whistle inside a cave, something whistles back closer to you.",
+    "In 1920, an abandoned lighthouse broadcast Morse code warnings with nobody inside."
+  ];
+  const randomIndex = Math.floor(Math.random() * hooks.length);
+  return {
+    title: "Creepy Encounter #" + Math.floor(Math.random() * 1000),
+    hook: hooks[randomIndex],
+    body: stories[randomIndex],
+    cta: "Follow for more real horror stories!"
+  };
+}
+
 app.post("/api/generate-script", async (req, res) => {
   const { theme, desc } = req.body;
+  let scriptData;
+
   try {
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error("GEMINI_API_KEY environment variable is not set on Railway.");
+    }
+
     const model = genAI.getGenerativeModel({ 
       model: "gemini-1.5-flash",
       generationConfig: { responseMimeType: "application/json" }
     });
 
-    const prompt = `Write a completely unique, terrifying short scary story for a video reel. 
+    const prompt = `Write a unique terrifying short scary story for a video reel. 
 Theme: "${theme || "Scary Stories"}". Context: ${desc || "Unexplained events"}.
-Respond ONLY with a valid JSON object strictly matching this schema:
+Respond ONLY with a JSON object matching this schema:
 {
   "title": "Creepy Title",
   "hook": "Attention grabbing first line",
@@ -64,12 +93,16 @@ Respond ONLY with a valid JSON object strictly matching this schema:
   "cta": "Follow for more!"
 }`;
 
-    // 1. Generate new unique script using free Gemini
     const result = await model.generateContent(prompt);
-    const scriptData = JSON.parse(result.response.text());
-    const speechText = `${scriptData.hook}. ${scriptData.body}`;
+    scriptData = JSON.parse(result.response.text());
 
-    // 2. Synthesize free TTS audio using native HTTPS request
+  } catch (error) {
+    console.error("Gemini Generation Error, switching to fallback:", error.message);
+    scriptData = generateFallbackStory();
+  }
+
+  try {
+    const speechText = `${scriptData.hook}. ${scriptData.body}`;
     const timestamp = Date.now();
     const fileName = `voice_${timestamp}.mp3`;
     const filePath = path.join(publicDir, fileName);
@@ -88,11 +121,11 @@ Respond ONLY with a valid JSON object strictly matching this schema:
       }
     });
 
-  } catch (error) {
-    console.error("Free pipeline error:", error);
+  } catch (ttsError) {
+    console.error("TTS Error:", ttsError.message);
     return res.status(500).json({
       success: false,
-      error: "Failed to generate free story/audio: " + error.message
+      error: "Audio synthesis failed: " + ttsError.message
     });
   }
 });
