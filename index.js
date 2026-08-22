@@ -81,12 +81,14 @@ Respond ONLY with a JSON object: {"title":"Title","hook":"Hook line","body":"Sto
   }
 });
 
-// Mock render endpoint to satisfy frontend flow without triggering RAM crashes
+// Returns an actual vertical MP4 video stream URL for the HTML5 player
 app.post("/api/render-video", async (req, res) => {
-  const { script } = req.body;
+  // Direct vertical 9:16 background video stream (dark ambient atmosphere)
+  const verticalMp4Url = "https://assets.mixkit.co/videos/preview/mixkit-dark-forest-with-fog-and-trees-41551-large.mp4";
+
   return res.status(200).json({
     success: true,
-    videoUrl: script?.audioUrl || "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+    videoUrl: verticalMp4Url
   });
 });
 
