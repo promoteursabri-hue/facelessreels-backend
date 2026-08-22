@@ -21,10 +21,9 @@ app.use("/audio", (req, res, next) => {
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
-// ElevenLabs Voice: Adam (Deep, Ominous Narration)
-const ELEVENLABS_VOICE_ID = "pNInz6obpgDQGcFmaJgB"; 
+// Default fallback voice ID (Adam)
+let ELEVENLABS_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; 
 
-// High Quality Royalty-Free Dark Ambient Background Music Tracks
 const BACKGROUND_MUSIC = [
   "https://assets.mixkit.co/music/preview/mixkit-creepy-ambience-2506.mp3",
   "https://assets.mixkit.co/music/preview/mixkit-horror-drone-2508.mp3",
@@ -40,7 +39,6 @@ app.post("/api/generate-script", async (req, res) => {
   const currentTheme = theme || "Urban Legends";
 
   try {
-    // Updated active model name to gemini-2.5-flash
     const model = genAI.getGenerativeModel({ 
       model: "gemini-3.6-flash",
       generationConfig: { responseMimeType: "application/json" }
@@ -56,28 +54,38 @@ Respond ONLY with a JSON object strictly matching this schema:
 
     const result = await model.generateContent(prompt);
     const scriptData = JSON.parse(result.response.text());
-    
-    // Split story into individual words for kinetic subtitles
     const words = scriptData.fullStory.split(" ");
 
-    // 1. Synthesize ElevenLabs Horror Audio
     const timestamp = Date.now();
     const fileName = `voice_${timestamp}.mp3`;
     const filePath = path.join(publicDir, fileName);
 
     if (process.env.ELEVENLABS_API_KEY) {
+      // 1. Get first available valid voice ID dynamically from your account
+      try {
+        const voicesRes = await axios.get("https://api.elevenlabs.io/v1/voices", {
+          headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY }
+        });
+        if (voicesRes.data.voices && voicesRes.data.voices.length > 0) {
+          ELEVENLABS_VOICE_ID = voicesRes.data.voices[0].voice_id;
+        }
+      } catch (vErr) {
+        console.warn("Could not fetch custom voice list, using default fallback ID.");
+      }
+
+      // 2. Synthesize Speech
       const response = await axios({
         method: "post",
         url: `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
         headers: {
-          "xi-api-key": process.env.ELEVENLABS_API_KEY,
+          "xi-api-key": process.env.ELEVENLABS_API_KEY.trim(),
           "Content-Type": "application/json"
         },
         data: {
           text: scriptData.fullStory,
-          model_id: "eleven_monolingual_v1",
+          model_id: "eleven_turbo_v2_5", // Fast, universal model supported on all tiers
           voice_settings: {
-            stability: 0.35, // Lower stability = erratic/emotional horror voice
+            stability: 0.35,
             similarity_boost: 0.75
           }
         },
@@ -85,7 +93,7 @@ Respond ONLY with a JSON object strictly matching this schema:
       });
       fs.writeFileSync(filePath, response.data);
     } else {
-      throw new Error("ELEVENLABS_API_KEY missing in Railway variables");
+      throw new Error("ELEVENLABS_API_KEY missing in Railway environment variables");
     }
 
     const protocol = req.headers["x-forwarded-proto"] || "https";
@@ -104,8 +112,17 @@ Respond ONLY with a JSON object strictly matching this schema:
     });
 
   } catch (error) {
-    console.error("Pipeline Error:", error.message);
-    return res.status(500).json({ success: false, error: error.message });
+    let errorDetails = error.message;
+    if (error.response && error.response.data) {
+      try {
+        const parsedData = JSON.parse(Buffer.from(error.response.data).toString());
+        errorDetails = parsedData.detail?.message || parsedData.message || JSON.stringify(parsedData);
+      } catch (e) {
+        errorDetails = error.response.statusText || error.message;
+      }
+    }
+    console.error("Pipeline Error:", errorDetails);
+    return res.status(500).json({ success: false, error: `ElevenLabs Error: ${errorDetails}` });
   }
 });
 
@@ -120,7 +137,7 @@ app.post("/api/render-video", async (req, res) => {
     if (process.env.PEXELS_API_KEY) {
       const pexelsRes = await axios.get(
         `https://api.pexels.com/videos/search?query=${query}&orientation=portrait&per_page=15`,
-        { headers: { Authorization: process.env.PEXELS_API_KEY } }
+        { headers: { Authorization: process.env.PEXELS_API_KEY.trim() } }
       );
 
       if (pexelsRes.data.videos && pexelsRes.data.videos.length > 0) {
