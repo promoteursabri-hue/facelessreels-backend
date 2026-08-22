@@ -32,7 +32,7 @@ const BACKGROUND_MUSIC = [
 ];
 
 app.get("/", (req, res) => {
-  res.status(200).json({ status: "ok", message: "Faceless Engine v2 Active" });
+  res.status(200).json({ status: "ok", message: "Faceless Engine Active" });
 });
 
 app.post("/api/generate-script", async (req, res) => {
@@ -40,8 +40,9 @@ app.post("/api/generate-script", async (req, res) => {
   const currentTheme = theme || "Urban Legends";
 
   try {
+    // Updated active model name to gemini-2.5-flash
     const model = genAI.getGenerativeModel({ 
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-flash",
       generationConfig: { responseMimeType: "application/json" }
     });
 
@@ -76,7 +77,7 @@ Respond ONLY with a JSON object strictly matching this schema:
           text: scriptData.fullStory,
           model_id: "eleven_monolingual_v1",
           voice_settings: {
-            stability: 0.35, // Lower stability = more erratic, emotional horror delivery
+            stability: 0.35, // Lower stability = erratic/emotional horror voice
             similarity_boost: 0.75
           }
         },
