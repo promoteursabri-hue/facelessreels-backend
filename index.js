@@ -21,11 +21,13 @@ app.use("/audio", (req, res, next) => {
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
-// High-Tension, Disturbing Background Audio Tracks
+// Custom Viral TikTok Audio Tracks
 const BACKGROUND_MUSIC = [
-  "https://files.catbox.moe/your_exact_tiktok_audio.mp3", // Paste your direct .mp3 link here
+  "https://files.catbox.moe/1q6rj9.mp3", // Your custom viral audio track
+  "https://cdn.pixabay.com/download/audio/2022/10/14/audio_9939ae0221.mp3?filename=scary-forest-123826.mp3",
   "https://assets.mixkit.co/music/preview/mixkit-scary-suspense-2509.mp3"
 ];
+
 app.get("/", (req, res) => {
   res.status(200).json({ status: "ok", message: "Faceless Engine Active" });
 });
@@ -109,7 +111,7 @@ Respond ONLY with a JSON object:
     const protocol = req.headers["x-forwarded-proto"] || "https";
     const host = req.get("host");
     const audioUrl = `${protocol}://${host}/audio/${fileName}`;
-    const bgAudioUrl = BACKGROUND_MUSIC[Math.floor(Math.random() * BACKGROUND_MUSIC.length)];
+    const bgAudioUrl = BACKGROUND_MUSIC[0]; // Always plays your Catbox track first
 
     return res.status(200).json({
       success: true,
