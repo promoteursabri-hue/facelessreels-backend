@@ -23,12 +23,9 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 // High-Tension, Disturbing Background Audio Tracks
 const BACKGROUND_MUSIC = [
-  "https://assets.mixkit.co/music/preview/mixkit-scary-suspense-2509.mp3",
-  "https://assets.mixkit.co/music/preview/mixkit-horror-drone-2508.mp3",
-  "https://assets.mixkit.co/music/preview/mixkit-creepy-ambience-2506.mp3",
-  "https://assets.mixkit.co/music/preview/mixkit-ticking-clock-suspense-2878.mp3"
+  "https://files.catbox.moe/your_exact_tiktok_audio.mp3", // Paste your direct .mp3 link here
+  "https://assets.mixkit.co/music/preview/mixkit-scary-suspense-2509.mp3"
 ];
-
 app.get("/", (req, res) => {
   res.status(200).json({ status: "ok", message: "Faceless Engine Active" });
 });
