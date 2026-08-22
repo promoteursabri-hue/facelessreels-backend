@@ -47,11 +47,13 @@ STRICT CREATIVE GUIDELINES:
 3. Escalation (3-15s): Build visceral fear through sensory details (silence, shadows, cold air, soft breathing).
 4. Twist Ending (15-30s): Deliver a devastating, unnerving realization.
 5. Target length: Approximately 65-75 words total for a 30-second voiceover. Write short, punchy sentences for dramatic pauses.
+6. Provide a 2-3 word Pexels animation search query that matches the visual setting of this story (e.g., "dark animation forest", "spooky cartoon room").
 
 Respond ONLY with a JSON object:
 {
   "title": "CREEPY HOOK TITLE",
-  "fullStory": "Your terrifying 30-second first-person horror story goes here."
+  "fullStory": "Your terrifying 30-second first-person horror story goes here.",
+  "visualQuery": "animated cartoon dark scary setting"
 }`;
 
     const result = await model.generateContent(prompt);
@@ -79,7 +81,6 @@ Respond ONLY with a JSON object:
         console.warn("Using default voice ID fallback.");
       }
 
-      // Request exact word timestamps from ElevenLabs
       const response = await axios({
         method: "post",
         url: `https://api.elevenlabs.io/v1/text-to-speech/${selectedVoiceId}/with-timestamps`,
@@ -99,11 +100,9 @@ Respond ONLY with a JSON object:
         }
       });
 
-      // Decode base64 audio and save to disk
       const audioBuffer = Buffer.from(response.data.audio_base64, "base64");
       fs.writeFileSync(filePath, audioBuffer);
 
-      // Convert character alignment array into word timing windows
       const alignment = response.data.alignment;
       const wordTimestamps = [];
       let currentWord = "";
@@ -157,15 +156,19 @@ Respond ONLY with a JSON object:
 });
 
 app.post("/api/render-video", async (req, res) => {
+  const { searchQuery } = req.body;
+  
+  // Forces search term to prioritize cartoon/animation stock clips
+  const animationKeywords = ["cartoon animation", "2d animation", "dark animated", "spooky cartoon"];
+  const randomPrefix = animationKeywords[Math.floor(Math.random() * animationKeywords.length)];
+  const finalQuery = searchQuery ? `${searchQuery} animation` : `${randomPrefix} dark horror`;
+
+  let videoUrl = "https://assets.mixkit.co/videos/preview/mixkit-halloween-spooky-graveyard-animation-41485-large.mp4";
+
   try {
-    const queries = ["dark fog forest", "spooky shadows night", "scary abandoned house", "creepy dark hallway"];
-    const query = queries[Math.floor(Math.random() * queries.length)];
-
-    let videoUrl = "https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-dark-43286-large.mp4";
-
     if (process.env.PEXELS_API_KEY) {
       const pexelsRes = await axios.get(
-        `https://api.pexels.com/videos/search?query=${query}&orientation=portrait&per_page=15`,
+        `https://api.pexels.com/videos/search?query=${encodeURIComponent(finalQuery)}&orientation=portrait&per_page=15`,
         { headers: { Authorization: process.env.PEXELS_API_KEY.trim() } }
       );
 
@@ -180,7 +183,7 @@ app.post("/api/render-video", async (req, res) => {
   } catch (err) {
     return res.status(200).json({ 
       success: true, 
-      videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-dark-43286-large.mp4" 
+      videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-halloween-spooky-graveyard-animation-41485-large.mp4" 
     });
   }
 });
