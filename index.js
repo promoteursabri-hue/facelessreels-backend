@@ -21,9 +21,8 @@ app.use("/audio", (req, res, next) => {
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
-// Custom Viral TikTok Audio Tracks
 const BACKGROUND_MUSIC = [
-  "https://files.catbox.moe/1q6rj9.mp3", // Your custom viral audio track
+  "https://files.catbox.moe/1q6rj9.mp3",
   "https://cdn.pixabay.com/download/audio/2022/10/14/audio_9939ae0221.mp3?filename=scary-forest-123826.mp3",
   "https://assets.mixkit.co/music/preview/mixkit-scary-suspense-2509.mp3"
 ];
@@ -33,7 +32,7 @@ app.get("/", (req, res) => {
 });
 
 app.post("/api/generate-script", async (req, res) => {
-  const { theme } = req.body;
+  const { theme, customPrompt } = req.body;
   const currentTheme = theme || "3 AM Smart Home Warnings";
 
   try {
@@ -42,12 +41,14 @@ app.post("/api/generate-script", async (req, res) => {
       generationConfig: { responseMimeType: "application/json" }
     });
 
-    const prompt = `You are a viral TikTok horror writer specializing in hyper-realistic psychological confessions.
+    // Dynamic prompt allowing direct user communication with Gemini 3.6
+    const basePrompt = `You are a viral TikTok horror writer specializing in hyper-realistic psychological confessions.
 Sub-genre/Theme: "${currentTheme}".
+${customPrompt ? `USER SPECIFIC INSTRUCTIONS: "${customPrompt}"` : ""}
 
 STRICT CREATIVE GUIDELINES:
 1. Write in the FIRST PERSON ("I", "my"). Make it feel like a real warning or confession.
-2. Hook (0-3s): Start immediately with an unsettling everyday situation (e.g., "My smart camera alerted me to motion at 3:14 AM...", "I bought a house with a locked basement...").
+2. Hook (0-3s): Start immediately with an unsettling everyday situation.
 3. Escalation (3-10s): Build visceral fear through sensory details (silence, shadows, cold air, soft breathing).
 4. Twist Ending (10-15s): Deliver a devastating, unnerving realization.
 5. Max length: 40-45 words total. Write short, punchy sentences for dramatic pauses.
@@ -58,7 +59,7 @@ Respond ONLY with a JSON object:
   "fullStory": "Your terrifying first-person horror story goes here."
 }`;
 
-    const result = await model.generateContent(prompt);
+    const result = await model.generateContent(basePrompt);
     const scriptData = JSON.parse(result.response.text());
     const words = scriptData.fullStory.split(" ");
 
@@ -66,7 +67,7 @@ Respond ONLY with a JSON object:
     const fileName = `voice_${timestamp}.mp3`;
     const filePath = path.join(publicDir, fileName);
 
-    let selectedVoiceId = "pNInz6obpgDQGcFmaJgB"; // Default fallback (Adam)
+    let selectedVoiceId = "pNInz6obpgDQGcFmaJgB";
 
     if (process.env.ELEVENLABS_API_KEY) {
       try {
@@ -111,7 +112,6 @@ Respond ONLY with a JSON object:
     const protocol = req.headers["x-forwarded-proto"] || "https";
     const host = req.get("host");
     const audioUrl = `${protocol}://${host}/audio/${fileName}`;
-    const bgAudioUrl = BACKGROUND_MUSIC[0]; // Always plays your Catbox track first
 
     return res.status(200).json({
       success: true,
@@ -119,7 +119,7 @@ Respond ONLY with a JSON object:
         ...scriptData,
         words: words,
         audioUrl: audioUrl,
-        bgAudioUrl: bgAudioUrl
+        bgAudioUrl: BACKGROUND_MUSIC[0]
       }
     });
 
