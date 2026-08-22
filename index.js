@@ -6,10 +6,10 @@ const ffmpegPath = require("ffmpeg-static");
 const fs = require("fs");
 const path = require("path");
 const https = require("https");
+const http = require("http");
 
 const app = express();
 
-// Enable full CORS for browser requests (StackBlitz pre-flights)
 app.use(cors({
   origin: "*",
   methods: ["GET", "POST", "OPTIONS"],
@@ -18,10 +18,8 @@ app.use(cors({
 
 app.use(express.json());
 
-// Point fluent-ffmpeg directly to static binary
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-// Directory Setup
 const publicDir = path.join(__dirname, "public/videos");
 const tempDir = path.join(__dirname, "temp");
 
@@ -34,25 +32,35 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || "sk-dummy",
 });
 
-// Helper: Download assets
+// Robust download helper that follows HTTP redirects cleanly
 const downloadFile = (url, dest) => {
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(dest);
-    https.get(url, (response) => {
+    const client = url.startsWith("https") ? https : http;
+    const request = client.get(url, (response) => {
+      // Follow 301/302 redirects
+      if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        return downloadFile(response.headers.location, dest).then(resolve).catch(reject);
+      }
+      
+      if (response.statusCode !== 200) {
+        return reject(new Error(`Failed to get '${url}' (${response.statusCode})`));
+      }
+
+      const file = fs.createWriteStream(dest);
       response.pipe(file);
       file.on("finish", () => file.close(resolve));
-    }).on("error", (err) => {
+    });
+
+    request.on("error", (err) => {
       fs.unlink(dest, () => reject(err));
     });
   });
 };
 
-// Healthcheck Route
 app.get("/", (req, res) => {
   res.status(200).json({ status: "ok", message: "FFmpeg Server Live!" });
 });
 
-// Step 1: OpenAI Script Generation
 app.post("/api/generate-script", async (req, res) => {
   const { theme, desc } = req.body;
   try {
@@ -71,7 +79,8 @@ Respond ONLY with a JSON object: {"title":"Title","hook":"Hook line","body":"Sto
       success: true,
       script: {
         ...scriptData,
-        audioUrl: "https://cdn.creatomate.com/demo/sample.mp3",
+        // Reliable direct static MP3 fallback sample
+        audioUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
       },
     });
   } catch (error) {
@@ -82,13 +91,12 @@ Respond ONLY with a JSON object: {"title":"Title","hook":"Hook line","body":"Sto
         hook: "Did you know some whispers aren't in your head?",
         body: "In 1920, an abandoned lighthouse broadcast signals completely on its own.",
         cta: "Follow for more unexplained mysteries!",
-        audioUrl: "https://cdn.creatomate.com/demo/sample.mp3",
+        audioUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
       },
     });
   }
 });
 
-// Step 2: Local FFmpeg Video Rendering
 app.post("/api/render-video", async (req, res) => {
   const timestamp = Date.now();
   const audioPath = path.join(tempDir, `audio_${timestamp}.mp3`);
@@ -99,11 +107,12 @@ app.post("/api/render-video", async (req, res) => {
   try {
     const { script, audioUrl } = req.body;
     const bgImageUrl = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=1080&q=1920";
+    const targetAudio = audioUrl || "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
 
-    await downloadFile(audioUrl || "https://cdn.creatomate.com/demo/sample.mp3", audioPath);
+    console.log("Downloading background and audio assets...");
+    await downloadFile(targetAudio, audioPath);
     await downloadFile(bgImageUrl, imagePath);
 
-    // Sanitize string characters for FFmpeg filter safety
     const cleanHook = (script?.hook || "Check this out").replace(/[':\\]/g, "");
     const cleanBody = (script?.body || "").replace(/[':\\]/g, "");
     const displayText = `${cleanHook} - ${cleanBody}`;
