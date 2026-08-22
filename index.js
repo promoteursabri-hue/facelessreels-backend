@@ -42,7 +42,7 @@ app.post("/api/generate-script", async (req, res) => {
   try {
     // Updated active model name to gemini-2.5-flash
     const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.5-flash",
+      model: "gemini-3.6-flash",
       generationConfig: { responseMimeType: "application/json" }
     });
 
