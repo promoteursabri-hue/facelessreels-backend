@@ -1,48 +1,53 @@
 const express = require("express");
 const cors = require("cors");
 const OpenAI = require("openai");
-const Creatomate = require("creatomate");
+const ffmpeg = require("fluent-ffmpeg");
+const ffmpegPath = require("@ffmpeg-installer/ffmpeg").path;
+const fs = require("fs");
+const path = require("path");
+const https = require("https");
+
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Prevent Railway container crashes from unhandled errors
-process.on("unhandledRejection", (reason, promise) => {
-  console.error("Unhandled Rejection at:", promise, "reason:", reason);
-});
+// Serve generated video files publicly
+app.use("/videos", express.static(path.join(__dirname, "public/videos")));
 
-process.on("uncaughtException", (error) => {
-  console.error("Uncaught Exception thrown:", error);
-});
+// Ensure temp and video output directories exist
+const publicDir = path.join(__dirname, "public/videos");
+const tempDir = path.join(__dirname, "temp");
+if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
-// 1. INITIALIZE CLIENTS
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || "sk-dummy",
 });
 
-const creatomate = new Creatomate.Client(process.env.CREATOMATE_API_KEY);
+// Helper function to download files
+const downloadFile = (url, dest) => {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(dest);
+    https.get(url, (response) => {
+      response.pipe(file);
+      file.on("finish", () => file.close(resolve));
+    }).on("error", (err) => {
+      fs.unlink(dest, () => reject(err));
+    });
+  });
+};
 
-// Health check endpoint
 app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "FacelessReels API is running!" });
+  res.json({ status: "ok", message: "FFmpeg Native Engine Running" });
 });
 
-// 2. STEP 1 & 2: GENERATE SCRIPT & VOICE OVER
 app.post("/api/generate-script", async (req, res) => {
   const { theme, desc } = req.body;
-
   try {
-    const prompt = `Create an engaging 30-second viral short-form video script about theme "${theme || "General"}". 
-Description: ${desc || "Interesting facts"}.
-Respond ONLY with a raw JSON object containing these keys:
-{
-  "title": "Short title",
-  "hook": "Attention grabbing opening line",
-  "body": "The main narration text",
-  "cta": "Call to action line",
-  "hashtags": ["#tag1", "#tag2", "#tag3"]
-}`;
+    const prompt = `Create an engaging short video script about theme "${theme || "General"}". Description: ${desc || "Facts"}.
+Respond ONLY with a JSON object: {"title":"Title","hook":"Hook line","body":"Story text","cta":"Follow!"}`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -57,102 +62,83 @@ Respond ONLY with a raw JSON object containing these keys:
       script: {
         ...scriptData,
         audioUrl: "https://cdn.creatomate.com/demo/sample.mp3",
-        estimatedDuration: "30s",
       },
     });
   } catch (error) {
-    console.warn("Using fallback script due to OpenAI error:", error.message);
-
     return res.status(200).json({
       success: true,
       script: {
         title: "The Whispering Shadows",
-        hook: "Did you know some whispers aren't just in your head?",
-        body: "In 1920, an abandoned lighthouse started broadcasting mysterious unknown signals. Researchers discovered the lighthouse was completely empty, yet the transmitter was running on its own.",
+        hook: "Did you know some whispers aren't in your head?",
+        body: "In 1920, an abandoned lighthouse broadcast signals completely on its own.",
         cta: "Follow for more unexplained mysteries!",
-        hashtags: ["#scary", "#mystery", "#urbanlegend", "#viral"],
         audioUrl: "https://cdn.creatomate.com/demo/sample.mp3",
-        estimatedDuration: "30s",
       },
     });
   }
 });
 
-// 3. STEP 3: RENDER MP4 VIDEO VIA CREATOMATE (STABLE POLLING)
+// NATIVE FFMPEG RENDER ENGINE (NO CREATOMATE / NO ELEVENLABS / NO STABILITY AI)
 app.post("/api/render-video", async (req, res) => {
+  const timestamp = Date.now();
+  const audioPath = path.join(tempDir, `audio_${timestamp}.mp3`);
+  const imagePath = path.join(tempDir, `bg_${timestamp}.jpg`);
+  const outputFileName = `reel_${timestamp}.mp4`;
+  const outputPath = path.join(publicDir, outputFileName);
+
   try {
     const { script, audioUrl } = req.body;
+    const bgImageUrl = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=1080&q=1920";
 
-    if (!process.env.CREATOMATE_TEMPLATE_ID || !process.env.CREATOMATE_API_KEY) {
-      throw new Error("Missing Creatomate API Key or Template ID in Railway environment variables.");
-    }
+    console.log("Downloading audio and background assets...");
+    await downloadFile(audioUrl || "https://cdn.creatomate.com/demo/sample.mp3", audioPath);
+    await downloadFile(bgImageUrl, imagePath);
 
-    console.log("Submitting render request to Creatomate...");
+    console.log("Building 9:16 vertical video with native FFmpeg...");
 
-    const bgImage = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=1080&q=80";
+    const subtitleText = `${script?.hook || ''}\n\n${script?.body || ''}`.replace(/'/g, "");
 
-    const initialRenders = await creatomate.render({
-      templateId: process.env.CREATOMATE_TEMPLATE_ID,
-      modifications: {
-        "Voiceover-1": audioUrl || "https://cdn.creatomate.com/demo/sample.mp3",
-        "Subtitles-1": script?.hook || "Did you know this creepy secret?",
-        "Image-1": bgImage,
+    ffmpeg()
+      .input(imagePath)
+      .loop(10) // 10 seconds duration
+      .input(audioPath)
+      .outputOptions([
+        "-c:v libx264",
+        "-tune stillimage",
+        "-c:a aac",
+        "-b:a 1920k",
+        "-pix_fmt yuv420p",
+        "-shortest",
+        // Format to 9:16 vertical video (1080x1920) with overlaid white subtitles
+        `-vf scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,drawtext=text='${subtitleText}':fontcolor=white:fontsize=42:x=(w-text_w)/2:y=(h-text_h)/2:box=1:boxcolor=black@0.6:boxborderw=10`
+      ])
+      .save(outputPath)
+      .on("end", () => {
+        console.log("FFmpeg Render Complete:", outputFileName);
 
-        "Voiceover-2": audioUrl || "https://cdn.creatomate.com/demo/sample.mp3",
-        "Subtitles-2": script?.body || "In 1920, an abandoned lighthouse broadcast mysterious signals.",
-        "Image-2": bgImage,
+        // Cleanup temp files
+        if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+        if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
 
-        "Voiceover-3": audioUrl || "https://cdn.creatomate.com/demo/sample.mp3",
-        "Subtitles-3": script?.cta || "Follow for more unexplained mysteries!",
-        "Image-3": bgImage,
+        const protocol = req.headers["x-forwarded-proto"] || "https";
+        const host = req.get("host");
+        const videoUrl = `${protocol}://${host}/videos/${outputFileName}`;
 
-        "Voiceover-4": audioUrl || "https://cdn.creatomate.com/demo/sample.mp3",
-        "Subtitles-4": Array.isArray(script?.hashtags) ? script.hashtags.join(" ") : "#scary #mystery",
-        "Image-4": bgImage,
+        return res.status(200).json({
+          success: true,
+          videoUrl: videoUrl,
+        });
+      })
+      .on("error", (err) => {
+        console.error("FFmpeg error:", err);
+        throw err;
+      });
 
-        "Voiceover-5": audioUrl || "https://cdn.creatomate.com/demo/sample.mp3",
-      },
-    });
-
-    if (!initialRenders || initialRenders.length === 0) {
-      throw new Error("Creatomate returned an empty render response.");
-    }
-
-    const renderId = initialRenders[0].id;
-    console.log(`Render submitted (ID: ${renderId}). Waiting for completion...`);
-
-    let finalRender = initialRenders[0];
-    let attempts = 0;
-
-    // Limit polling loop to prevent memory stack overflow / server timeouts
-    while (finalRender.status !== "succeeded" && finalRender.status !== "failed" && attempts < 20) {
-      await new Promise((resolve) => setTimeout(resolve, 3000)); // Wait 3s
-      attempts++;
-      
-      try {
-        finalRender = await creatomate.getRender(renderId);
-        console.log(`Polling status... Attempt ${attempts}: ${finalRender.status}`);
-      } catch (pollErr) {
-        console.warn(`Polling attempt ${attempts} failed:`, pollErr.message);
-      }
-    }
-
-    if (finalRender.status === "failed") {
-      throw new Error(`Creatomate render failed: ${finalRender.errorMessage || "Unknown rendering error"}`);
-    }
-
-    console.log("Render completed successfully! Output URL:", finalRender.url);
-
-    return res.status(200).json({
-      success: true,
-      videoUrl: finalRender.url,
-    });
   } catch (error) {
-    console.error("Server Error in /api/render-video:", error.message);
-
+    console.error("Render failure:", error.message);
     return res.status(500).json({
       success: false,
-      error: error.message || "Failed to render video",
+      error: "FFmpeg render failed: " + error.message,
     });
   }
 });
