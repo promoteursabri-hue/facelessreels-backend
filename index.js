@@ -2,13 +2,13 @@ const express = require("express");
 const cors = require("cors");
 const OpenAI = require("openai");
 const ffmpeg = require("fluent-ffmpeg");
+const ffmpegPath = require("ffmpeg-static");
 const fs = require("fs");
 const path = require("path");
 const https = require("https");
 
 const app = express();
 
-// 1. Enable full CORS for browser requests (StackBlitz pre-flights)
 app.use(cors({
   origin: "*",
   methods: ["GET", "POST", "OPTIONS"],
@@ -17,10 +17,9 @@ app.use(cors({
 
 app.use(express.json());
 
-// Set global system FFmpeg
-ffmpeg.setFfmpegPath("ffmpeg");
+// Point fluent-ffmpeg directly to the static binary executable
+ffmpeg.setFfmpegPath(ffmpegPath);
 
-// Serve video directory publicly
 const publicDir = path.join(__dirname, "public/videos");
 const tempDir = path.join(__dirname, "temp");
 
@@ -45,12 +44,10 @@ const downloadFile = (url, dest) => {
   });
 };
 
-// Healthcheck Route
 app.get("/", (req, res) => {
   res.status(200).json({ status: "ok", message: "FFmpeg Server Live!" });
 });
 
-// Step 1: Script Generation
 app.post("/api/generate-script", async (req, res) => {
   const { theme, desc } = req.body;
   try {
@@ -86,7 +83,6 @@ Respond ONLY with a JSON object: {"title":"Title","hook":"Hook line","body":"Sto
   }
 });
 
-// Step 2: Native Render
 app.post("/api/render-video", async (req, res) => {
   const timestamp = Date.now();
   const audioPath = path.join(tempDir, `audio_${timestamp}.mp3`);
@@ -128,7 +124,7 @@ app.post("/api/render-video", async (req, res) => {
         return res.status(200).json({ success: true, videoUrl });
       })
       .on("error", (err) => {
-        console.error("FFmpeg error:", err);
+        console.error("FFmpeg execution error:", err);
         return res.status(500).json({ success: false, error: err.message });
       });
 
@@ -137,7 +133,6 @@ app.post("/api/render-video", async (req, res) => {
   }
 });
 
-// Bind explicitly to 0.0.0.0 for Railway networking
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server listening on 0.0.0.0:${PORT}`);
