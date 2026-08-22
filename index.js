@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
-const OpenAI = require("openai");
+const { GoogleGenAI } = require("@google/genai");
+const gTTS = require("gtts");
 const fs = require("fs");
 const path = require("path");
 
@@ -19,42 +20,49 @@ if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
 
 app.use("/audio", express.static(publicDir));
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || "sk-dummy",
-});
+// Free Google Gemini Client
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 app.get("/", (req, res) => {
-  res.status(200).json({ status: "ok", message: "AI Voice & Script Server Active" });
+  res.status(200).json({ status: "ok", message: "Free Gemini & TTS Server Active" });
 });
 
 app.post("/api/generate-script", async (req, res) => {
   const { theme, desc } = req.body;
   try {
-    const prompt = `Create a short scary video script about theme "${theme || "Scary Stories"}". Description: ${desc || "Creepy facts"}.
-Respond ONLY with a JSON object: {"title":"Title","hook":"Hook line","body":"Story text","cta":"Follow for more!"}`;
+    const prompt = `Write a completely unique, terrifying short scary story for a video reel. 
+Theme: "${theme || "Scary Stories"}". Context: ${desc || "Unexplained events"}.
+Respond ONLY with a valid JSON object strictly matching this schema:
+{
+  "title": "Creepy Title",
+  "hook": "Attention grabbing first line",
+  "body": "The terrifying story details (2-3 sentences max)",
+  "cta": "Follow for more!"
+}`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
+    // 1. Generate new script using Free Gemini
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: { responseMimeType: "application/json" }
     });
 
-    const scriptData = JSON.parse(completion.choices[0].message.content);
-    const fullSpeechText = `${scriptData.hook} ... ${scriptData.body} ... ${scriptData.cta}`;
+    const scriptData = JSON.parse(response.text);
+    const speechText = `${scriptData.hook} ... ${scriptData.body} ... ${scriptData.cta}`;
 
-    // Synthesize real spoken AI voice narration
-    const mp3 = await openai.audio.speech.create({
-      model: "tts-1",
-      voice: "onyx",
-      input: fullSpeechText,
-    });
-
+    // 2. Synthesize Free Audio Narration using gTTS
     const timestamp = Date.now();
     const fileName = `voice_${timestamp}.mp3`;
     const filePath = path.join(publicDir, fileName);
 
-    const buffer = Buffer.from(await mp3.arrayBuffer());
-    await fs.promises.writeFile(filePath, buffer);
+    const gtts = new gTTS(speechText, "en");
+    
+    await new Promise((resolve, reject) => {
+      gtts.save(filePath, (err, result) => {
+        if (err) reject(err);
+        else resolve(result);
+      });
+    });
 
     const protocol = req.headers["x-forwarded-proto"] || "https";
     const host = req.get("host");
@@ -67,28 +75,21 @@ Respond ONLY with a JSON object: {"title":"Title","hook":"Hook line","body":"Sto
         audioUrl: audioUrl
       }
     });
+
   } catch (error) {
-    return res.status(200).json({
-      success: true,
-      script: {
-        title: "The Whispering Shadows",
-        hook: "Did you know some whispers aren't in your head?",
-        body: "In 1920, an abandoned lighthouse broadcast signals completely on its own.",
-        cta: "Follow for more unexplained mysteries!",
-        audioUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
-      }
+    console.error("Free pipeline error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to generate free story/audio: " + error.message
     });
   }
 });
 
-// Returns an actual vertical MP4 video stream URL for the HTML5 player
 app.post("/api/render-video", async (req, res) => {
-  // Direct vertical 9:16 background video stream (dark ambient atmosphere)
-  const verticalMp4Url = "https://assets.mixkit.co/videos/preview/mixkit-dark-forest-with-fog-and-trees-41551-large.mp4";
-
+  const { script } = req.body;
   return res.status(200).json({
     success: true,
-    videoUrl: verticalMp4Url
+    videoUrl: script?.audioUrl || "ready"
   });
 });
 
