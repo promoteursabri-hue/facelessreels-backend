@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const { GoogleGenAI } = require("@google/genai");
-const gTTS = require("gtts");
+const https = require("https");
 const fs = require("fs");
 const path = require("path");
 
@@ -20,12 +20,31 @@ if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
 
 app.use("/audio", express.static(publicDir));
 
-// Free Google Gemini Client
+// Initialize Google Gemini SDK
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 app.get("/", (req, res) => {
   res.status(200).json({ status: "ok", message: "Free Gemini & TTS Server Active" });
 });
+
+// Helper function to fetch audio from Google TTS via HTTPS
+function downloadTTS(text, filePath) {
+  return new Promise((resolve, reject) => {
+    const encodedText = encodeURIComponent(text.substring(0, 200)); // safe limit for query string
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodedText}&tl=en&client=tw-ob`;
+
+    const file = fs.createWriteStream(filePath);
+    https.get(url, (response) => {
+      response.pipe(file);
+      file.on("finish", () => {
+        file.close(resolve);
+      });
+    }).on("error", (err) => {
+      fs.unlink(filePath, () => {});
+      reject(err);
+    });
+  });
+}
 
 app.post("/api/generate-script", async (req, res) => {
   const { theme, desc } = req.body;
@@ -36,11 +55,11 @@ Respond ONLY with a valid JSON object strictly matching this schema:
 {
   "title": "Creepy Title",
   "hook": "Attention grabbing first line",
-  "body": "The terrifying story details (2-3 sentences max)",
+  "body": "The terrifying story details in 2 short sentences",
   "cta": "Follow for more!"
 }`;
 
-    // 1. Generate new script using Free Gemini
+    // 1. Generate new unique script using free Gemini
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
@@ -48,21 +67,14 @@ Respond ONLY with a valid JSON object strictly matching this schema:
     });
 
     const scriptData = JSON.parse(response.text);
-    const speechText = `${scriptData.hook} ... ${scriptData.body} ... ${scriptData.cta}`;
+    const speechText = `${scriptData.hook}. ${scriptData.body}`;
 
-    // 2. Synthesize Free Audio Narration using gTTS
+    // 2. Synthesize free TTS audio using native HTTPS request
     const timestamp = Date.now();
     const fileName = `voice_${timestamp}.mp3`;
     const filePath = path.join(publicDir, fileName);
 
-    const gtts = new gTTS(speechText, "en");
-    
-    await new Promise((resolve, reject) => {
-      gtts.save(filePath, (err, result) => {
-        if (err) reject(err);
-        else resolve(result);
-      });
-    });
+    await downloadTTS(speechText, filePath);
 
     const protocol = req.headers["x-forwarded-proto"] || "https";
     const host = req.get("host");
