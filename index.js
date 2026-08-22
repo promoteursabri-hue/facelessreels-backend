@@ -32,8 +32,8 @@ app.get("/", (req, res) => {
 });
 
 app.post("/api/generate-script", async (req, res) => {
-  const { theme, customPrompt } = req.body;
-  const currentTheme = theme || "3 AM Smart Home Warnings";
+  const { customIdea } = req.body;
+  const userIdea = customIdea && customIdea.trim() !== "" ? customIdea : "A smart security camera catching an unknown figure inside the house at 3 AM";
 
   try {
     const model = genAI.getGenerativeModel({ 
@@ -41,25 +41,23 @@ app.post("/api/generate-script", async (req, res) => {
       generationConfig: { responseMimeType: "application/json" }
     });
 
-    // Dynamic prompt allowing direct user communication with Gemini 3.6
-    const basePrompt = `You are a viral TikTok horror writer specializing in hyper-realistic psychological confessions.
-Sub-genre/Theme: "${currentTheme}".
-${customPrompt ? `USER SPECIFIC INSTRUCTIONS: "${customPrompt}"` : ""}
+    // Hardcoded structure & length — ONLY the idea is injected
+    const prompt = `Write a 30 sec viral TikTok horror story script based on this idea: "${userIdea}".
 
 STRICT CREATIVE GUIDELINES:
 1. Write in the FIRST PERSON ("I", "my"). Make it feel like a real warning or confession.
-2. Hook (0-3s): Start immediately with an unsettling everyday situation.
-3. Escalation (3-10s): Build visceral fear through sensory details (silence, shadows, cold air, soft breathing).
-4. Twist Ending (10-15s): Deliver a devastating, unnerving realization.
-5. Max length: 40-45 words total. Write short, punchy sentences for dramatic pauses.
+2. Hook (0-3s): Start immediately with an unsettling situation.
+3. Escalation (3-15s): Build visceral fear through sensory details (silence, shadows, cold air, soft breathing).
+4. Twist Ending (15-30s): Deliver a devastating, unnerving realization.
+5. Target length: Approximately 65-75 words total for a 30-second voiceover. Write short, punchy sentences for dramatic pauses.
 
 Respond ONLY with a JSON object:
 {
   "title": "CREEPY HOOK TITLE",
-  "fullStory": "Your terrifying first-person horror story goes here."
+  "fullStory": "Your terrifying 30-second first-person horror story goes here."
 }`;
 
-    const result = await model.generateContent(basePrompt);
+    const result = await model.generateContent(prompt);
     const scriptData = JSON.parse(result.response.text());
     const words = scriptData.fullStory.split(" ");
 
