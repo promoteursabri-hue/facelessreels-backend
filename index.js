@@ -21,10 +21,9 @@ app.use("/audio", (req, res, next) => {
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
+// Catbox custom horror track
 const BACKGROUND_MUSIC = [
-  "https://files.catbox.moe/1q6rj9.mp3",
-  "https://cdn.pixabay.com/download/audio/2022/10/14/audio_9939ae0221.mp3?filename=scary-forest-123826.mp3",
-  "https://assets.mixkit.co/music/preview/mixkit-scary-suspense-2509.mp3"
+  "https://files.catbox.moe/1q6rj9.mp3"
 ];
 
 app.get("/", (req, res) => {
@@ -32,8 +31,8 @@ app.get("/", (req, res) => {
 });
 
 app.post("/api/generate-script", async (req, res) => {
-  const { customIdea } = req.body;
-  const userIdea = customIdea && customIdea.trim() !== "" ? customIdea : "A smart security camera catching an unknown figure inside the house at 3 AM";
+  const { theme } = req.body;
+  const currentTheme = theme || "3 AM Smart Home Warnings";
 
   try {
     const model = genAI.getGenerativeModel({ 
@@ -41,8 +40,8 @@ app.post("/api/generate-script", async (req, res) => {
       generationConfig: { responseMimeType: "application/json" }
     });
 
-    // Hardcoded structure & length — ONLY the idea is injected
-    const prompt = `Write a 30 sec viral TikTok horror story script based on this idea: "${userIdea}".
+    // Hardcoded 30-second horror prompt; ONLY currentTheme changes
+    const prompt = `Write a 30 sec viral TikTok horror story script based on this theme: "${currentTheme}".
 
 STRICT CREATIVE GUIDELINES:
 1. Write in the FIRST PERSON ("I", "my"). Make it feel like a real warning or confession.
