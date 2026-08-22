@@ -32,12 +32,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || "sk-dummy",
 });
 
-// Robust download helper that follows HTTP redirects cleanly
 const downloadFile = (url, dest) => {
   return new Promise((resolve, reject) => {
     const client = url.startsWith("https") ? https : http;
     const request = client.get(url, (response) => {
-      // Follow 301/302 redirects
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
         return downloadFile(response.headers.location, dest).then(resolve).catch(reject);
       }
@@ -79,7 +77,6 @@ Respond ONLY with a JSON object: {"title":"Title","hook":"Hook line","body":"Sto
       success: true,
       script: {
         ...scriptData,
-        // Reliable direct static MP3 fallback sample
         audioUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
       },
     });
@@ -105,44 +102,20 @@ app.post("/api/render-video", async (req, res) => {
   const outputPath = path.join(publicDir, outputFileName);
 
   try {
-    const { script, audioUrl } = req.body;
+    const { audioUrl } = req.body;
     const bgImageUrl = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?auto=format&fit=crop&w=1080&q=1920";
     const targetAudio = audioUrl || "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
 
-    console.log("Downloading background and audio assets...");
     await downloadFile(targetAudio, audioPath);
     await downloadFile(bgImageUrl, imagePath);
-
-    const cleanHook = (script?.hook || "Check this out").replace(/[':\\]/g, "");
-    const cleanBody = (script?.body || "").replace(/[':\\]/g, "");
-    const displayText = `${cleanHook} - ${cleanBody}`;
 
     ffmpeg()
       .input(imagePath)
       .loop(10)
       .input(audioPath)
       .videoFilters([
-        {
-          filter: 'scale',
-          options: '1080:1920:force_original_aspect_ratio=increase'
-        },
-        {
-          filter: 'crop',
-          options: '1080:1920'
-        },
-        {
-          filter: 'drawtext',
-          options: {
-            text: displayText,
-            fontcolor: 'white',
-            fontsize: 38,
-            x: '(w-text_w)/2',
-            y: '(h-text_h)/2',
-            box: 1,
-            boxcolor: 'black@0.6',
-            boxborderw: 10
-          }
-        }
+        "scale=1080:1920:force_original_aspect_ratio=increase",
+        "crop=1080:1920"
       ])
       .outputOptions([
         "-c:v libx264",
